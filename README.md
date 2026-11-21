@@ -1,36 +1,36 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Panelforge — AI comic generator
 
-## Getting Started
+Turn an idea into comic panels: Claude writes a short script, an image model draws each panel, and everything you save lands in your library and on the dashboard. See [plan.md](plan.md) for the full MVP plan.
 
-First, run the development server:
+## Status
 
-```bash
+**Phase 1 (frontend with mocks) is done.** The whole flow works in the browser:
+
+- **Create** (`/create`): prompt, style, panel count, aspect ratio, colour, tone, and an "Enhance with Claude" switch. With it on you can review and edit the script before panels are drawn. You can regenerate single panels, save, and download the page as a PNG.
+- **Library** (`/library`, `/library/[id]`): saved generations and images, with search, style filters, sorting, remix and delete.
+- **Dashboard** (`/`): total generations, images created, saved images, most used style, 7/14-day activity, images by style and recent generations.
+
+Scripts and images are **mocks** for now: the "script" is a template and the images are drawn placeholder scenes. Data lives in the browser's `localStorage`.
+
+## Run it
+
+```powershell
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Where things live
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Path | What |
+|---|---|
+| `src/lib/presets.ts` | Styles (prompt suffix + palette), panel counts, aspect ratios, colour modes, tones |
+| `src/lib/types.ts` | `Generation`, `PanelImage`, `Script`, `DashboardStats` |
+| `src/lib/data/` | `Repository` interface + `LocalRepository` (localStorage). **Phase 2:** add a Supabase implementation and swap it in `data/index.ts` |
+| `src/lib/ai/` | `AIService` interface, prompt builder, guardrail check, mock provider. **Phase 3:** swap in a client that calls API routes (Claude + fal.ai) in `ai/index.ts` |
+| `src/lib/generate.ts` | Runs a generation (parallel panels) and panel regeneration |
+| `src/lib/stats.ts` | Dashboard numbers from raw records |
+| `src/components/` | App shell, shared panel/grid components, create form, library cards; `ui/` is shadcn/ui |
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**How the counts work:** one click of Generate is 1 generation. "Images created" counts every image ever drawn, including ones replaced by a panel regeneration. Deleting a generation removes it and its images from all totals.
