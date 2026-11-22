@@ -43,5 +43,8 @@ export function NavLinks({ pathname }: { pathname: string | null }) {
 }
 
 export function ActiveNav() {
-  return <NavLinks pathname={usePathname()} />;
+  const pathname = usePathname();
+  // Signed-out visitors only ever see /login; links there would just bounce back.
+  if (pathname === "/login") return null;
+  return <NavLinks pathname={pathname} />;
 }

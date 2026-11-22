@@ -1,5 +1,5 @@
-import { generatePanel, isFalMediaUrl } from "@/lib/ai/fal";
-import { badRequest, falErrorResponse, parseImageRequest, readJson } from "@/lib/ai/request";
+import { generatePanel, isAllowedReferenceUrl } from "@/lib/ai/fal";
+import { badRequest, falErrorResponse, parseImageRequest, readJson, requireUser } from "@/lib/ai/request";
 import { MAX_PANELS } from "@/lib/presets";
 
 /** Seedream edit takes ~35s typically, up to ~60s. */
@@ -7,6 +7,8 @@ export const maxDuration = 120;
 
 /** POST /api/panels — draws one comic panel from the character reference image. */
 export async function POST(request: Request) {
+  const denied = await requireUser();
+  if (denied) return denied;
   const body = await readJson(request);
   if (!body) return badRequest("Invalid JSON body");
   const parsed = parseImageRequest(body);
@@ -16,7 +18,7 @@ export async function POST(request: Request) {
   if (!Number.isInteger(panelIndex) || panelIndex < 0 || panelIndex >= MAX_PANELS)
     return badRequest(`panelIndex must be 0–${MAX_PANELS - 1}`);
 
-  if (!isFalMediaUrl(body.referenceUrl)) return badRequest("referenceUrl must be a fal.media image URL");
+  if (!isAllowedReferenceUrl(body.referenceUrl)) return badRequest("referenceUrl must be a fal.media or Panelforge storage image URL");
 
   try {
     return Response.json(await generatePanel({ ...parsed, referenceUrl: body.referenceUrl }));

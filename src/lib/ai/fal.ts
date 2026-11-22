@@ -115,12 +115,23 @@ export async function generatePanel(opts: ImageInput & { quality: QualityId; ref
   return { ...out, width: opts.width, height: opts.height, model: tier.panelModel };
 }
 
-/** Only fal's own CDN may be used as a reference image. */
-export function isFalMediaUrl(value: unknown): value is string {
+/**
+ * Reference images may only come from fal's CDN or from a signed URL into this
+ * app's own Supabase Storage bucket (where characters are kept after F-010).
+ */
+export function isAllowedReferenceUrl(value: unknown): value is string {
   if (typeof value !== "string") return false;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && (url.hostname === "fal.media" || url.hostname.endsWith(".fal.media"));
+    if (url.protocol !== "https:") return false;
+    if (url.hostname === "fal.media" || url.hostname.endsWith(".fal.media")) return true;
+    const supabase = process.env.NEXT_PUBLIC_SUPABASE_URL ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL) : null;
+    return (
+      !!supabase &&
+      url.hostname === supabase.hostname &&
+      url.pathname.startsWith("/storage/v1/object/sign/comics/") &&
+      url.searchParams.has("token")
+    );
   } catch {
     return false;
   }

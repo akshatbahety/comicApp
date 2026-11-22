@@ -1,11 +1,18 @@
 import "server-only";
 import { ASPECT_RATIOS, QUALITIES } from "@/lib/presets";
+import { getUserId } from "@/lib/supabase/server";
 import { FalNotConfiguredError } from "./fal";
 import { checkText } from "./prompts";
 
 /** Shared request parsing for the image API routes. */
 
 export const badRequest = (error: string, status = 400) => Response.json({ error }, { status });
+
+/** Image routes spend fal credits, so only signed-in users may call them. */
+export async function requireUser() {
+  const userId = await getUserId();
+  return userId ? null : badRequest("Sign in to generate images.", 401);
+}
 
 export async function readJson(request: Request): Promise<Record<string, unknown> | null> {
   try {

@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { LocalRepository } from "./local-repository";
+import { SupabaseRepository } from "./supabase-repository";
 import type { Repository } from "./repository";
 
 export type * from "./repository";
 
-/** The app-wide repository. Swap this line for the Supabase implementation in Phase 2. */
-export const repo: Repository = new LocalRepository();
+/** The app-wide repository: Supabase (F-010). `LocalRepository` remains for the one-time import of browser data. */
+export const repo: Repository = new SupabaseRepository();
 
 /**
  * Runs a repository query and re-runs it whenever data changes.

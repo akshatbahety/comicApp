@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { AccountMenu } from "./auth/account-menu";
 import { ActiveNav, NavLinks } from "./nav";
 
 export function Logo() {
@@ -31,9 +32,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Suspense fallback={<NavLinks pathname={null} />}>
           <ActiveNav />
         </Suspense>
-        <p className="mt-auto hidden px-2 text-xs text-muted-foreground md:block">
-          Local mode · data stays in this browser
-        </p>
+        <Suspense>
+          <AccountMenu />
+        </Suspense>
       </aside>
       <main className="min-w-0 flex-1 px-4 py-6 sm:px-8 md:px-10 md:py-8">
         <div className="mx-auto w-full max-w-6xl">{children}</div>
