@@ -71,5 +71,12 @@ export function parseImageRequest(body: Record<string, unknown>) {
 export function falErrorResponse(err: unknown, what: string) {
   if (err instanceof FalNotConfiguredError) return badRequest(err.message, 503);
   console.error(`[fal] ${what} failed`, err);
-  return badRequest(err instanceof Error ? err.message : `${what} failed`, 502);
+  const status = (err as { status?: number })?.status;
+  // A rejected FAL_KEY is our configuration problem, not the user's prompt.
+  if (status === 401 || status === 403)
+    return badRequest("Image generation is temporarily unavailable. Please try again later.", 503);
+  const detail = (err as { body?: { detail?: unknown } })?.body?.detail;
+  const message =
+    (err instanceof Error && err.message) || (typeof detail === "string" && detail) || `${what} failed`;
+  return badRequest(message, 502);
 }
