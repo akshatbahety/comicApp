@@ -12,6 +12,12 @@ One file, newest day on top. Add a `## YYYY-MM-DD` heading at the start of each 
 - [x] UI: real 3-panel comic, regenerate from stored character, PNG export (AC-3, AC-4, AC-9)
 - [ ] QA: delete from UI (AC-8), sign-up through the UI (AC-2)
 
+- [x] Pushed F-016–F-018 and F-010 to GitHub (`main`)
+- [x] F-011 slice: daily image quota (DB functions + API routes); verified limit, release, 429, no direct table access
+- [x] `docs/deploy-vercel.md` setup guide
+- [ ] Owner: import repo in Vercel + env vars; then set Supabase Site URL / redirect URLs
+- [ ] Post-deploy smoke test on production (incl. delete, AC-8)
+
 ## 2026-11-21
 - [x] Agent set up
 - [x] F-016 facial features built (worktree 44b3044/0412682); lint + tsc clean; mock-mode ACs walked

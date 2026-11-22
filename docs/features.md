@@ -19,7 +19,7 @@ Owned by the **product-manager** agent. The developer agent moves items to `in-q
 | F-008 | Dashboard: generations, images, saved, top style, activity, recent | P0 | in-qa | — | `/` |
 | F-009 | Real Claude script writing (idea → structured panel script) | P1 | idea | — | plan.md Phase 3. Must honour F-018 language contract (captions in chosen language, scenes in English) |
 | F-010 | Supabase backend: auth, tables, storage, RLS | P1 | in-qa | [F-010](specs/F-010-supabase-backend.md) | Project `panelforge`. Email+password, owner-only RLS, private `comics` bucket, one-time local import. Shipping agent comes after this |
-| F-011 | Guardrails and rate limits | P1 | idea | — | plan.md §8, Phase 4 |
+| F-011 | Guardrails and rate limits | P1 | in-dev | — | First slice built 2026-11-22: daily image quota (30/user, 300 site-wide, in `quota_settings`), reserved before every fal call, released on failure. Remaining: per-minute rate limit, UI showing images left |
 | F-012 | Mobile layout polish and empty/error states | P2 | idea | — | plan.md Phase 4 |
 | F-013 | Reusable characters library | P2 | idea | — | Post-MVP |
 | F-014 | Storyboard editor | P2 | idea | — | Post-MVP |

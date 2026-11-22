@@ -1,6 +1,6 @@
 import "server-only";
 import { ASPECT_RATIOS, QUALITIES } from "@/lib/presets";
-import { getUserId } from "@/lib/supabase/server";
+import { createServerSupabase, getUserId } from "@/lib/supabase/server";
 import { FalNotConfiguredError } from "./fal";
 import { checkText } from "./prompts";
 
@@ -12,6 +12,32 @@ export const badRequest = (error: string, status = 400) => Response.json({ error
 export async function requireUser() {
   const userId = await getUserId();
   return userId ? null : badRequest("Sign in to generate images.", 401);
+}
+
+/**
+ * Reserves one image against the daily limits (per user and site-wide, kept in
+ * Supabase `quota_settings`). Returns an error Response, or a `release` function
+ * to call if drawing fails so the failure doesn't count.
+ */
+export async function reserveImage(kind: "character" | "panel"): Promise<Response | { release: () => Promise<void> }> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase.rpc("reserve_image", { p_kind: kind });
+  if (error) {
+    if (error.message.includes("quota_user"))
+      return badRequest("You've reached today's image limit. It resets at midnight UTC.", 429);
+    if (error.message.includes("quota_global"))
+      return badRequest("Panelforge has reached its image limit for today. Please try again tomorrow.", 503);
+    if (error.message.includes("not_signed_in")) return badRequest("Sign in to generate images.", 401);
+    console.error("[quota] reserve failed", error);
+    return badRequest("Couldn't check your image limit. Try again.", 500);
+  }
+  const id = data as string;
+  return {
+    release: async () => {
+      const { error: releaseError } = await supabase.rpc("release_image", { p_id: id });
+      if (releaseError) console.error("[quota] release failed", releaseError);
+    },
+  };
 }
 
 export async function readJson(request: Request): Promise<Record<string, unknown> | null> {

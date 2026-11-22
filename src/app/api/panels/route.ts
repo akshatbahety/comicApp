@@ -1,5 +1,5 @@
 import { generatePanel, isAllowedReferenceUrl } from "@/lib/ai/fal";
-import { badRequest, falErrorResponse, parseImageRequest, readJson, requireUser } from "@/lib/ai/request";
+import { badRequest, falErrorResponse, parseImageRequest, readJson, requireUser, reserveImage } from "@/lib/ai/request";
 import { MAX_PANELS } from "@/lib/presets";
 
 /** Seedream edit takes ~35s typically, up to ~60s. */
@@ -20,9 +20,12 @@ export async function POST(request: Request) {
 
   if (!isAllowedReferenceUrl(body.referenceUrl)) return badRequest("referenceUrl must be a fal.media or Panelforge storage image URL");
 
+  const quota = await reserveImage("panel");
+  if (quota instanceof Response) return quota;
   try {
     return Response.json(await generatePanel({ ...parsed, referenceUrl: body.referenceUrl }));
   } catch (err) {
+    await quota.release();
     return falErrorResponse(err, "Panel generation");
   }
 }
