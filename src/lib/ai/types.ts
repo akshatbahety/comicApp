@@ -26,7 +26,7 @@ export type PanelResult = ImageResult;
 
 /**
  * AI provider boundary. The mock draws placeholders offline; the fal provider calls
- * our API routes (keys never reach the browser). Scripts come from Claude later.
+ * our API routes (keys never reach the browser): scripts from Claude, images from fal.
  */
 export interface AIService {
   /** Panel model label stored on each generation (depends on the chosen quality tier). */

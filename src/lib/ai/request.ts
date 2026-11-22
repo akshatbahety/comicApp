@@ -9,9 +9,9 @@ import { checkText } from "./prompts";
 export const badRequest = (error: string, status = 400) => Response.json({ error }, { status });
 
 /** Image routes spend fal credits, so only signed-in users may call them. */
-export async function requireUser() {
+export async function requireUser(what = "images") {
   const userId = await getUserId();
-  return userId ? null : badRequest("Sign in to generate images.", 401);
+  return userId ? null : badRequest(`Sign in to generate ${what}.`, 401);
 }
 
 /**
