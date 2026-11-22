@@ -23,6 +23,14 @@ export async function reserveImage(kind: "character" | "panel"): Promise<Respons
   const supabase = await createServerSupabase();
   const { data, error } = await supabase.rpc("reserve_image", { p_kind: kind });
   if (error) {
+    // 402 tells the client to show the paywall (F-019).
+    if (error.message.includes("quota_unpaid"))
+      return Response.json({ error: "Subscribe to draw comics.", code: "subscription_required" }, { status: 402 });
+    if (error.message.includes("quota_monthly"))
+      return Response.json(
+        { error: "You've used all your images for this billing period. They refill when your plan renews.", code: "monthly_limit" },
+        { status: 429 }
+      );
     if (error.message.includes("quota_user"))
       return badRequest("You've reached today's image limit. It resets at midnight UTC.", 429);
     if (error.message.includes("quota_global"))

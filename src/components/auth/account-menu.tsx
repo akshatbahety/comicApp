@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { CreditCard, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { billingEnabled, getBillingStatus, imagesLeft, openBillingPortal } from "@/lib/billing/client";
+import type { BillingStatus } from "@/lib/billing/status";
 import { repo } from "@/lib/data";
 import { importLocalComics } from "@/lib/data/import-local";
 import type { SupabaseRepository } from "@/lib/data/supabase-repository";
@@ -15,6 +17,13 @@ export function AccountMenu() {
   const router = useRouter();
   const pathname = usePathname();
   const [email, setEmail] = useState<string | null>(null);
+  const [plan, setPlan] = useState<BillingStatus | null>(null);
+
+  // Plan summary (F-019), refreshed when the page changes (e.g. after drawing).
+  useEffect(() => {
+    if (!email || !billingEnabled) return;
+    getBillingStatus().then(setPlan, () => setPlan(null));
+  }, [email, pathname]);
 
   useEffect(() => {
     const auth = getSupabase().auth;
@@ -48,8 +57,34 @@ export function AccountMenu() {
     router.refresh();
   }
 
+  async function manageBilling() {
+    try {
+      const { url } = await openBillingPortal();
+      window.location.assign(url);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't open billing");
+    }
+  }
+
+  const planLabel = !plan?.required
+    ? null
+    : plan.entitled
+      ? `${imagesLeft(plan)} of ${plan.limit} images left`
+      : "No plan yet";
+
   return (
     <div className="mt-auto flex items-center gap-2 px-2 md:flex-col md:items-stretch">
+      {planLabel && (
+        <p className="hidden text-xs text-muted-foreground md:block" data-testid="plan-summary">
+          {planLabel}
+        </p>
+      )}
+      {plan?.canManage && (
+        <Button variant="ghost" size="sm" onClick={manageBilling} className="justify-start">
+          <CreditCard className="size-4" aria-hidden />
+          Manage billing
+        </Button>
+      )}
       <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={email}>
         {email}
       </p>

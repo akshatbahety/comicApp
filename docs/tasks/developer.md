@@ -3,6 +3,12 @@
 One file, newest day on top. Add a `## YYYY-MM-DD` heading at the start of each working day, keep a checklist under it, carry unfinished items forward, never delete past days.
 
 ## 2026-11-22
+- [x] F-019: Dodo product "Panelforge Monthly" ($10/mo, live), `subscriptions` table + paywall in `reserve_image`
+- [x] Checkout, return sync, customer portal, webhook routes; paywall dialog + draft kept across checkout
+- [x] Verified: SQL gate (unpaid/comped/limit, rolled back), paywall UI with stubbed status, draft restore, routes 503 without keys
+- [ ] Owner: add `SUPABASE_SECRET_KEY` + Dodo keys, register webhook, deploy, then `require_subscription = true`
+- [ ] Real checkout test in Dodo test mode (needs test API key + test product)
+
 - [x] F-010: Supabase project `panelforge` created (paused whiteboardink-dev for the slot)
 - [x] Schema + RLS + private `comics` bucket (`supabase/migrations/`); security advisors clean
 - [x] `SupabaseRepository`, `/login`, `src/proxy.ts`, sign-out, API 401 guard, Storage reference URLs

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Bookmark, BookmarkCheck, Download, ImageIcon, Pencil, RotateCcw, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/app-shell";
@@ -22,7 +22,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { PaywallDialog } from "@/components/billing/paywall-dialog";
 import { ai, checkIdea } from "@/lib/ai";
+import { billingEnabled, getBillingStatus, imagesLeft, saveDraft, takeDraft } from "@/lib/billing/client";
 import { basicScript, finalizeScript, validateScript } from "@/lib/ai/prompts";
 import { repo, useRepoQuery } from "@/lib/data";
 import { downloadComicPage } from "@/lib/download";
@@ -72,12 +74,41 @@ export function CreateView() {
   const [scriptErrors, setScriptErrors] = useState<Record<string, string>>({});
   const [pendingReplace, setPendingReplace] = useState<(() => void) | null>(null);
   const [focusToken, setFocusToken] = useState(0);
+  const restored = useRef<"draft" | "none" | null>(null);
+  // F-019: the paywall shown when drawing needs a plan.
+  const [paywall, setPaywall] = useState<{ open: boolean; checkoutAvailable: boolean; onHold: boolean }>({
+    open: false,
+    checkoutAvailable: true,
+    onHold: false,
+  });
 
   // Remix: prefill from an existing generation. Caption language precedence (F-018):
   // the remixed comic's language, else the remembered default, else English.
   useEffect(() => {
     const applyRememberedLanguage = () =>
       setSettings((cur) => ({ ...cur, language: getLanguage(getPrefs().language).id }));
+    // Back from checkout (F-019): the saved draft wins over a remix or defaults.
+    // Runs once even under StrictMode: the draft is consumed on the first read.
+    if (restored.current === "draft") return;
+    if (restored.current === null) {
+      const draft = takeDraft();
+      restored.current = draft ? "draft" : "none";
+      if (searchParams.get("subscribed")) {
+        toast.success("You're subscribed. Approve your script to draw it.", { id: "subscribed" });
+        router.replace(remixId ? `/create?from=${encodeURIComponent(remixId)}` : "/create");
+      }
+      if (draft) {
+        setIdea(draft.idea);
+        setSettings(draft.settings);
+        if (draft.script) {
+          setScript(draft.script);
+          setBaseline(draft.baseline);
+          setScriptKey(draft.scriptKey);
+          setPhase("review");
+        }
+        return;
+      }
+    }
     if (!remixId) {
       // Read after mount (not in useState) so the server render and hydration agree.
       applyRememberedLanguage();
@@ -97,6 +128,8 @@ export function CreateView() {
         reviewScript: s.reviewScript ?? s.enhance,
       });
     });
+    // Runs once per remix id; searchParams/router are read only on that run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remixId]);
 
   const query = useCallback(
@@ -111,7 +144,40 @@ export function CreateView() {
   const activeCount = phase === "idle" ? settings.panelCount : panels.length || settings.panelCount;
   const activeAspect = current?.generation.settings.aspectRatio ?? settings.aspectRatio;
 
+  /**
+   * F-019: drawing needs a plan with enough images left (character + panels).
+   * Opens the paywall and returns false if not. The image API enforces this too.
+   */
+  async function ensureCanDraw(withScript: Script | null): Promise<boolean> {
+    if (!billingEnabled) return true;
+    const needed = settings.panelCount + 1;
+    try {
+      const status = await getBillingStatus();
+      if (!status.required) return true;
+      if (!status.entitled) {
+        setPaywall({
+          open: true,
+          checkoutAvailable: status.checkoutAvailable,
+          onHold: status.status === "on_hold" && status.canManage,
+        });
+      } else if (imagesLeft(status) >= needed) {
+        return true;
+      } else {
+        toast.error(
+          `This comic needs ${needed} images and you have ${imagesLeft(status)} left this billing period. ` +
+            "Try fewer panels, or wait for your plan to renew."
+        );
+      }
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+    // Leave the script on screen so nothing is lost.
+    setPhase(withScript ? "review" : "idle");
+    return false;
+  }
+
   async function draw(withScript: Script | null) {
+    if (!(await ensureCanDraw(withScript))) return;
     const n = settings.panelCount;
     setPhase("drawing");
     setGenerationId(null);
@@ -421,6 +487,15 @@ export function CreateView() {
               approveLabel={approveLabel}
             />
           )}
+
+          <PaywallDialog
+            open={paywall.open}
+            onOpenChange={(open) => setPaywall((p) => ({ ...p, open }))}
+            imagesNeeded={settings.panelCount + 1}
+            checkoutAvailable={paywall.checkoutAvailable}
+            onHold={paywall.onHold}
+            onBeforeCheckout={() => saveDraft({ idea, settings, script, baseline, scriptKey })}
+          />
 
           <AlertDialog open={!!pendingReplace} onOpenChange={(open) => !open && setPendingReplace(null)}>
             <AlertDialogContent>
