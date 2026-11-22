@@ -12,11 +12,23 @@ import { ScriptEditor } from "@/components/create/script-editor";
 import { SettingsForm } from "@/components/create/settings-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ai, checkIdea } from "@/lib/ai";
+import { basicScript, finalizeScript, validateScript } from "@/lib/ai/prompts";
 import { repo, useRepoQuery } from "@/lib/data";
 import { downloadComicPage } from "@/lib/download";
 import { regeneratePanel, runGeneration } from "@/lib/generate";
-import { estimateCost, formatCost, getQuality, PANEL_COUNTS } from "@/lib/presets";
+import { estimateCost, formatCost, getLanguage, getQuality, normalizeFace, PANEL_COUNTS } from "@/lib/presets";
+import { getPrefs } from "@/lib/prefs";
 import type { GenerationSettings, Script } from "@/lib/types";
 
 type Phase = "idle" | "scripting" | "review" | "drawing" | "done";
@@ -29,7 +41,13 @@ const DEFAULT_SETTINGS: GenerationSettings = {
   tone: "funny",
   quality: "low",
   enhance: true,
+  reviewScript: true,
 };
+
+/** A script is only reused when the idea, panel count and Enhance match the ones it was made for. */
+// Language is part of the key (F-018): a kept script in one language must not be drawn under another.
+const scriptKeyFor = (idea: string, s: GenerationSettings) =>
+  `${idea.trim()}|${s.panelCount}|${s.enhance}|${s.language ?? "en"}`;
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : "Something went wrong");
 
@@ -47,17 +65,37 @@ export function CreateView() {
   const [character, setCharacter] = useState<CharacterState>({ status: "idle" });
   const [regenerating, setRegenerating] = useState<Set<number>>(new Set());
   const [downloading, setDownloading] = useState(false);
+  // F-017 script review: the version last produced (for "edited"), the key it was
+  // made for, inline validation errors, and an action waiting on the Replace confirm.
+  const [baseline, setBaseline] = useState<Script | null>(null);
+  const [scriptKey, setScriptKey] = useState<string | null>(null);
+  const [scriptErrors, setScriptErrors] = useState<Record<string, string>>({});
+  const [pendingReplace, setPendingReplace] = useState<(() => void) | null>(null);
+  const [focusToken, setFocusToken] = useState(0);
 
-  // Remix: prefill from an existing generation.
+  // Remix: prefill from an existing generation. Caption language precedence (F-018):
+  // the remixed comic's language, else the remembered default, else English.
   useEffect(() => {
-    if (!remixId) return;
+    const applyRememberedLanguage = () =>
+      setSettings((cur) => ({ ...cur, language: getLanguage(getPrefs().language).id }));
+    if (!remixId) {
+      // Read after mount (not in useState) so the server render and hydration agree.
+      applyRememberedLanguage();
+      return;
+    }
     repo.getGeneration(remixId).then((found) => {
-      if (!found) return;
+      if (!found) return applyRememberedLanguage();
       setIdea(found.generation.idea);
-      const s = found.generation.settings;
+      // Unknown look IDs (e.g. hand-edited storage) are dropped to "Any".
+      const s = { ...found.generation.settings, face: normalizeFace(found.generation.settings.face) };
       // Older comics may use a panel count that's disabled while testing.
       const allowed = (PANEL_COUNTS as readonly number[]).includes(s.panelCount);
-      setSettings(allowed ? s : { ...s, panelCount: 4 });
+      // Legacy comics have no language (English); unknown IDs also fall back to English.
+      setSettings({
+        ...(allowed ? s : { ...s, panelCount: 4 }),
+        language: getLanguage(s.language).id,
+        reviewScript: s.reviewScript ?? s.enhance,
+      });
     });
   }, [remixId]);
 
@@ -105,6 +143,78 @@ export function CreateView() {
     }
   }
 
+  const reviewOn = settings.reviewScript ?? settings.enhance;
+  /** The script differs from the version last produced by writeScript/basicScript. */
+  const edited = !!script && !!baseline && JSON.stringify(script) !== JSON.stringify(baseline);
+
+  function clearResult() {
+    setPanels([]);
+    setCharacter({ status: "idle" });
+    setGenerationId(null);
+  }
+
+  function forgetScript() {
+    setScript(null);
+    setBaseline(null);
+    setScriptKey(null);
+    setScriptErrors({});
+  }
+
+  /**
+   * A fresh script: written by Claude (Enhance on) or built locally from the idea
+   * (Enhance off, no AI call). Returns null if writing failed; the old script is kept.
+   */
+  async function produceScript(): Promise<Script | null> {
+    clearResult();
+    setScriptErrors({});
+    let next: Script;
+    if (settings.enhance) {
+      setPhase("scripting");
+      try {
+        next = await ai.writeScript(idea, settings);
+      } catch (err) {
+        toast.error(errorMessage(err));
+        setPhase("idle");
+        return null;
+      }
+    } else {
+      next = basicScript(idea, settings);
+    }
+    setScript(next);
+    setBaseline(next);
+    setScriptKey(scriptKeyFor(idea, settings));
+    return next;
+  }
+
+  /** Validates, then draws the trimmed script. On errors, opens review with them inline. */
+  async function approve(withScript: Script) {
+    const errors = validateScript(withScript, idea);
+    if (Object.keys(errors).length) {
+      setScriptErrors(errors);
+      setFocusToken((t) => t + 1);
+      setPhase("review");
+      return;
+    }
+    setScriptErrors({});
+    const final = finalizeScript(withScript, idea);
+    setScript(final);
+    await draw(final);
+  }
+
+  /** Review on: open review. Review off: draw straight away. */
+  async function proceed(withScript: Script) {
+    if (!reviewOn) return approve(withScript);
+    clearResult();
+    setScriptErrors({});
+    setPhase("review");
+  }
+
+  /** Runs `action` now, or after the Replace confirm if the script has edits. */
+  function confirmReplace(action: () => void) {
+    if (edited) setPendingReplace(() => action);
+    else action();
+  }
+
   async function handlePrimary() {
     const problem = checkIdea(idea);
     if (problem) {
@@ -112,26 +222,54 @@ export function CreateView() {
       return;
     }
     if (phase === "review") {
-      await draw(script);
+      if (script) await approve(script);
       return;
     }
-    if (!settings.enhance) {
-      setScript(null);
+    if (!settings.enhance && !reviewOn) {
+      forgetScript();
       await draw(null);
       return;
     }
-    setPhase("scripting");
-    setPanels([]);
-    setCharacter({ status: "idle" });
-    setGenerationId(null);
-    try {
-      const next = await ai.writeScript(idea, settings);
-      setScript(next);
-      setPhase("review");
-    } catch (err) {
-      toast.error(errorMessage(err));
-      setPhase("idle");
+    // A kept script is reused when it was made for this idea, panel count and Enhance:
+    // always with review on, and with review off only if the user edited it.
+    const keyMatches = !!script && scriptKey === scriptKeyFor(idea, settings);
+    if (script && keyMatches && (reviewOn || edited)) {
+      await proceed(script);
+      return;
     }
+    confirmReplace(async () => {
+      const next = await produceScript();
+      if (next) await proceed(next);
+    });
+  }
+
+  function handleRewrite() {
+    confirmReplace(async () => {
+      if (await produceScript()) setPhase("review");
+    });
+  }
+
+  function backToSettings() {
+    setScriptErrors({});
+    setPhase("idle");
+  }
+
+  /** Edits clear that field's error. */
+  function editScript(next: Script) {
+    if (script && Object.keys(scriptErrors).length) {
+      const changed = (path: string, a: string, b: string) => (a !== b ? [path] : []);
+      const paths = [
+        ...changed("title", script.title, next.title),
+        ...changed("characters", script.characters, next.characters),
+        ...next.panels.flatMap((p, i) => [
+          ...changed(`panels.${i}.scene`, script.panels[i]?.scene ?? "", p.scene),
+          ...changed(`panels.${i}.caption`, script.panels[i]?.caption ?? "", p.caption),
+        ]),
+      ];
+      if (paths.some((p) => scriptErrors[p]))
+        setScriptErrors((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => !paths.includes(k))));
+    }
+    setScript(next);
   }
 
   async function handleRegenerate(index: number) {
@@ -173,7 +311,7 @@ export function CreateView() {
     if (!current) return;
     setDownloading(true);
     try {
-      await downloadComicPage(current.generation.title, current.images);
+      await downloadComicPage(current.generation.title, current.images, { lang: current.generation.settings.language });
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -183,20 +321,27 @@ export function CreateView() {
 
   function startOver() {
     setPhase("idle");
-    setScript(null);
+    forgetScript();
     setPanels([]);
     setCharacter({ status: "idle" });
     setGenerationId(null);
   }
 
+  const approveLabel = `Approve and draw ${settings.panelCount} panels · ≈${formatCost(
+    estimateCost(settings.quality, settings.panelCount)
+  )}`;
   const primaryLabel =
     phase === "scripting"
       ? "Writing script…"
       : phase === "drawing"
         ? "Drawing panels…"
-        : phase === "review" || !settings.enhance
-          ? `Generate ${settings.panelCount} ${settings.panelCount === 1 ? "image" : "images"}`
-          : "Write script";
+        : phase === "review"
+          ? approveLabel
+          : reviewOn
+            ? settings.enhance
+              ? "Write script"
+              : "Review script"
+            : `Generate ${settings.panelCount} ${settings.panelCount === 1 ? "image" : "images"}`;
 
   const finishedImages = panels.filter((p) => p.status === "done").length;
 
@@ -230,8 +375,8 @@ export function CreateView() {
                 {primaryLabel}
               </Button>
               {phase === "review" && (
-                <Button variant="ghost" onClick={() => setPhase("idle")}>
-                  <Pencil /> Edit prompt or settings
+                <Button variant="ghost" onClick={backToSettings}>
+                  <Pencil /> Back to settings
                 </Button>
               )}
               <p className="text-center text-xs text-muted-foreground">
@@ -254,8 +399,49 @@ export function CreateView() {
           )}
 
           {script && phase !== "scripting" && (
-            <ScriptEditor script={script} onChange={setScript} readOnly={phase !== "review"} />
+            <ScriptEditor
+              script={script}
+              onChange={editScript}
+              readOnly={phase !== "review"}
+              sourceLabel={
+                phase === "review"
+                  ? settings.enhance
+                    ? "Drafted by Claude. Edit anything before drawing."
+                    : "Built from your prompt. Edit anything before drawing."
+                  : settings.enhance
+                    ? "Written by Claude"
+                    : "Written from your prompt"
+              }
+              note={phase === "idle" ? "Your edited script is kept." : undefined}
+              errors={scriptErrors}
+              focusToken={focusToken}
+              onApprove={handlePrimary}
+              onBack={backToSettings}
+              onRewrite={settings.enhance ? handleRewrite : undefined}
+              approveLabel={approveLabel}
+            />
           )}
+
+          <AlertDialog open={!!pendingReplace} onOpenChange={(open) => !open && setPendingReplace(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Replace your edited script?</AlertDialogTitle>
+                <AlertDialogDescription>Your changes to the script will be lost.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Keep editing</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    const action = pendingReplace;
+                    setPendingReplace(null);
+                    action?.();
+                  }}
+                >
+                  Replace
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           <Card className="gap-4 py-4">
             <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 px-4">
@@ -306,6 +492,7 @@ export function CreateView() {
                       state={state}
                       aspect={cssAspect(activeAspect)}
                       caption={state.status === "done" ? state.image.caption : undefined}
+                      lang={current?.generation.settings.language ?? settings.language}
                       regenerating={regenerating.has(i)}
                       onRegenerate={phase === "done" ? () => handleRegenerate(i) : undefined}
                     />

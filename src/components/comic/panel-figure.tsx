@@ -4,7 +4,7 @@ import { AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { panelColumns } from "@/lib/presets";
+import { CAPTION_FONT_STACK, getLanguage, panelColumns, type LanguageId } from "@/lib/presets";
 import type { PanelImage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -18,11 +18,13 @@ interface PanelFigureProps {
   state: PanelState;
   aspect: string; // CSS aspect-ratio, e.g. "1 / 1"
   caption?: string;
+  /** Caption language: sets the figcaption's `lang` for fonts and screen readers. Defaults to English. */
+  lang?: LanguageId;
   regenerating?: boolean;
   onRegenerate?: () => void;
 }
 
-export function PanelFigure({ index, state, aspect, caption, regenerating, onRegenerate }: PanelFigureProps) {
+export function PanelFigure({ index, state, aspect, caption, lang, regenerating, onRegenerate }: PanelFigureProps) {
   const busy = state.status === "loading" || regenerating;
   return (
     <figure
@@ -78,7 +80,11 @@ export function PanelFigure({ index, state, aspect, caption, regenerating, onReg
       )}
 
       {caption && state.status === "done" && (
-        <figcaption className="absolute inset-x-2.5 bottom-2.5 rounded-lg bg-card/95 px-3 py-2 text-xs leading-snug text-card-foreground shadow-sm sm:text-[13px]">
+        <figcaption
+          lang={getLanguage(lang).lang}
+          style={{ fontFamily: CAPTION_FONT_STACK }}
+          className="absolute inset-x-2.5 bottom-2.5 rounded-lg bg-card/95 px-3 py-2 text-xs leading-snug break-words text-card-foreground shadow-sm sm:text-[13px]"
+        >
           {caption}
         </figcaption>
       )}

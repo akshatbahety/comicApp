@@ -1,4 +1,4 @@
-import { getColorMode, getStyle, getTone } from "@/lib/presets";
+import { faceOptions, getColorMode, getStyle, getTone, SCRIPT_LIMITS } from "@/lib/presets";
 import type { GenerationSettings, Script } from "@/lib/types";
 
 /**
@@ -67,14 +67,26 @@ export function characterDescription(idea: string, script: Script | null) {
 }
 
 /**
+ * "Face and look: curly hair, red hair, round glasses." from the look pickers, in
+ * table order, or "" when nothing is set. Input is normalised first, so a tampered
+ * stored record can only ever contribute known preset fragments.
+ */
+export function featuresClause(face: unknown) {
+  const fragments = faceOptions(face).map((o) => o.prompt);
+  return fragments.length ? `Face and look: ${fragments.join(", ")}.` : "";
+}
+
+/**
  * Prompt for the character reference drawn before any panel. One full-body figure
  * on plain white: multi-view turnaround sheets get copied into panels as layouts.
  */
 export function buildCharacterPrompt(idea: string, script: Script | null, settings: GenerationSettings) {
   const style = getStyle(settings.style);
   const colour = getColorMode(settings.colorMode);
+  const look = featuresClause(settings.face);
   return (
     `Character design: a single full-body view of ${characterDescription(idea, script)}. ` +
+    (look ? `${look} ` : "") +
     `Standing in a neutral three-quarter pose, centered, whole body visible from head to toe, ` +
     `plain white background, no scenery, clear distinctive outfit and colours. ` +
     `${style.prompt}, illustration style, ${colour.prompt}, textless.`
@@ -82,16 +94,21 @@ export function buildCharacterPrompt(idea: string, script: Script | null, settin
 }
 
 /**
- * Minimal client-side guardrail so obviously unsafe ideas never reach a model.
+ * Minimal guardrail so obviously unsafe text never reaches a model. Checked on the
+ * idea in the browser and on every image prompt on the server (parseImageRequest).
  * Phase 3 adds Claude-side screening and the image model's safety checker.
  */
 const BLOCKED = [/\bnud(e|ity)\b/i, /\bnaked\b/i, /\bporn/i, /\bsexual\b/i, /\bgore\b/i, /\bbehead/i, /\bchild\s+abuse/i];
 
+/** Shared blocklist check with no length rule (F-016, reused by F-017). Error message or null. */
+export function checkText(text: string): string | null {
+  return BLOCKED.some((re) => re.test(text)) ? "That text isn't something we can generate." : null;
+}
+
 export function checkIdea(idea: string): string | null {
   const trimmed = idea.trim();
   if (trimmed.length < 3) return "Describe your idea in a few words first.";
-  if (BLOCKED.some((re) => re.test(trimmed)))
-    return "That idea isn't something we can generate. Try a different prompt.";
+  if (checkText(trimmed)) return "That idea isn't something we can generate. Try a different prompt.";
   return null;
 }
 
@@ -107,4 +124,53 @@ export function titleFromIdea(idea: string) {
     .map((w) => w[0].toUpperCase() + w.slice(1))
     .join(" ");
   return title || "Untitled";
+}
+
+// ---------------------------------------------------------------------------
+// F-017 script review
+// ---------------------------------------------------------------------------
+
+/**
+ * The script used for review when Enhance is off. No AI call. Drawn unedited, it
+ * produces exactly the same prompts as drawing with no script at all.
+ */
+export function basicScript(idea: string, settings: GenerationSettings): Script {
+  return {
+    title: titleFromIdea(idea),
+    characters: `the main character of: ${idea.trim()}`,
+    panels: Array.from({ length: settings.panelCount }, (_, i) => ({ scene: shotFor(settings.panelCount, i), caption: "" })),
+  };
+}
+
+/** Trims every field and applies the empty-title fallback. This is what gets drawn and stored. */
+export function finalizeScript(script: Script, idea: string): Script {
+  return {
+    title: script.title.trim() || titleFromIdea(idea),
+    characters: script.characters.trim(),
+    panels: script.panels.map((p) => ({ scene: p.scene.trim(), caption: p.caption.trim() })),
+  };
+}
+
+const BLOCKED_FIELD = "That text isn't something we can generate.";
+
+/**
+ * Checks a reviewed script before drawing. Returns field path → message
+ * (`title`, `characters`, `panels.N.scene`, `panels.N.caption`), empty when valid.
+ */
+export function validateScript(script: Script, idea: string): Record<string, string> {
+  const s = finalizeScript(script, idea);
+  const errors: Record<string, string> = {};
+  const check = (path: string, value: string, max: number, required?: string) => {
+    if (!value) {
+      if (required) errors[path] = required;
+    } else if (value.length > max) errors[path] = `Keep this to ${max} characters or fewer.`;
+    else if (checkText(value)) errors[path] = BLOCKED_FIELD;
+  };
+  check("title", s.title, SCRIPT_LIMITS.title);
+  check("characters", s.characters, SCRIPT_LIMITS.characters);
+  s.panels.forEach((p, i) => {
+    check(`panels.${i}.scene`, p.scene, SCRIPT_LIMITS.scene, `Describe what happens in panel ${i + 1}.`);
+    check(`panels.${i}.caption`, p.caption, SCRIPT_LIMITS.caption);
+  });
+  return errors;
 }

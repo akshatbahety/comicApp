@@ -1,6 +1,7 @@
 import "server-only";
 import { ASPECT_RATIOS, QUALITIES } from "@/lib/presets";
 import { FalNotConfiguredError } from "./fal";
+import { checkText } from "./prompts";
 
 /** Shared request parsing for the image API routes. */
 
@@ -19,6 +20,7 @@ export async function readJson(request: Request): Promise<Record<string, unknown
 export function parseImageRequest(body: Record<string, unknown>) {
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
   if (!prompt || prompt.length > 2000) return "prompt must be 1–2000 characters";
+  if (checkText(prompt)) return "That prompt isn't something we can generate.";
 
   const aspect = ASPECT_RATIOS.find((a) => a.id === body.aspectRatio);
   if (!aspect) return "Unknown aspectRatio";

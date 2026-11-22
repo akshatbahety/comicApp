@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -8,17 +10,22 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   ASPECT_RATIOS,
   COLOR_MODES,
+  FACE_FEATURES,
   MAX_IDEA_LENGTH,
   PANEL_COUNTS,
   QUALITIES,
   STYLES,
   getQuality,
+  normalizeFace,
   TONES,
   type AspectRatioId,
   type ColorModeId,
+  type FaceFeatureKey,
   type StyleId,
   type ToneId,
 } from "@/lib/presets";
+import { getLanguage, LANGUAGES } from "@/lib/presets";
+import { setPrefs } from "@/lib/prefs";
 import type { GenerationSettings, PanelCount } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -84,6 +91,18 @@ export function SettingsForm({ idea, onIdeaChange, settings, onChange, disabled 
           <p className="mt-0.5 text-xs text-muted-foreground">Writes a script and a prompt for each panel</p>
         </div>
         <Switch id="enhance" checked={settings.enhance} onCheckedChange={(enhance) => onChange({ enhance })} />
+      </div>
+
+      <div className="-mt-4 flex items-center justify-between gap-4 rounded-lg border bg-background px-3.5 py-3">
+        <div>
+          <Label htmlFor="review-script">Review script before drawing</Label>
+          <p className="mt-0.5 text-xs text-muted-foreground">See and edit every panel&apos;s text before anything is drawn</p>
+        </div>
+        <Switch
+          id="review-script"
+          checked={settings.reviewScript ?? settings.enhance}
+          onCheckedChange={(reviewScript) => onChange({ reviewScript })}
+        />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -220,6 +239,116 @@ export function SettingsForm({ idea, onIdeaChange, settings, onChange, disabled 
           })}
         </div>
       </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="language">Caption language</Label>
+        <Select
+          value={getLanguage(settings.language).id}
+          onValueChange={(v) => {
+            const language = getLanguage(v).id;
+            setPrefs({ language });
+            onChange({ language });
+          }}
+        >
+          <SelectTrigger id="language" className="w-full bg-card">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {LANGUAGES.map((l) => (
+              <SelectItem key={l.id} value={l.id} lang={l.lang}>
+                {l.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Captions and dialogue are written in this language. Pictures never contain text.
+        </p>
+      </div>
+      <CharacterLook face={settings.face} onChange={(face) => onChange({ face })} />
     </fieldset>
+  );
+}
+
+const ANY = "any";
+
+/** F-016: collapsible preset pickers for the main character's look. */
+function CharacterLook({
+  face,
+  onChange,
+}: {
+  face: GenerationSettings["face"];
+  onChange: (face: GenerationSettings["face"]) => void;
+}) {
+  const count = Object.keys(face ?? {}).length;
+  const [open, setOpen] = useState(count > 0);
+  // Expand when a look arrives from outside (Remix prefills after mount).
+  const [prevFace, setPrevFace] = useState(face);
+  if (face !== prevFace) {
+    setPrevFace(face);
+    if (count > 0 && !open) setOpen(true);
+  }
+
+  // Always normalise, so "all Any" is stored as no `face` key rather than `{}`.
+  const set = (key: FaceFeatureKey, value: string) =>
+    onChange(normalizeFace({ ...face, [key]: value === ANY ? undefined : value }));
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border bg-background px-3.5 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls="character-look"
+          onClick={() => setOpen((o) => !o)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm font-medium"
+        >
+          <ChevronDown className={cn("size-4 shrink-0 transition-transform", !open && "-rotate-90")} aria-hidden />
+          Character look
+          <span className="font-mono text-xs font-normal text-muted-foreground">{count ? `${count} set` : "Any"}</span>
+        </button>
+        {count > 0 && (
+          <button
+            type="button"
+            onClick={() => onChange(undefined)}
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            Reset
+          </button>
+        )}
+      </div>
+      {open && (
+        <div id="character-look" className="flex flex-col gap-3">
+          <p className="text-xs text-muted-foreground">Works best when the main character is a person.</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {FACE_FEATURES.map((group) => (
+              <div key={group.key} className="flex min-w-0 flex-col gap-2">
+                <Label htmlFor={`face-${group.key}`}>{group.label}</Label>
+                <Select value={face?.[group.key] ?? ANY} onValueChange={(v) => set(group.key, v)}>
+                  <SelectTrigger id={`face-${group.key}`} className="w-full bg-card">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ANY}>Any</SelectItem>
+                    {group.options.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {"swatch" in o && (
+                          <span
+                            className="size-3.5 shrink-0 rounded-full border border-foreground/15"
+                            style={{ background: o.swatch }}
+                            aria-hidden
+                          />
+                        )}
+                        {o.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

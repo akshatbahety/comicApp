@@ -17,7 +17,7 @@ import { repo, useRepoQuery } from "@/lib/data";
 import { downloadComicPage } from "@/lib/download";
 import { formatDateTime } from "@/lib/format";
 import { regeneratePanel } from "@/lib/generate";
-import { getAspect, getColorMode, getStyle, getQuality, getTone } from "@/lib/presets";
+import { describeFace, getAspect, getColorMode, getLanguage, getStyle, getQuality, getTone } from "@/lib/presets";
 
 export function DetailView({ id }: { id: string }) {
   const router = useRouter();
@@ -57,7 +57,7 @@ export function DetailView({ id }: { id: string }) {
   async function download() {
     setDownloading(true);
     try {
-      await downloadComicPage(g.title, images);
+      await downloadComicPage(g.title, images, { lang: s.language });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Download failed");
     } finally {
@@ -86,7 +86,10 @@ export function DetailView({ id }: { id: string }) {
     ["Layout", `${s.panelCount} ${s.panelCount === 1 ? "panel" : "panels"} · ${getAspect(s.aspectRatio).id}`],
     ["Colour", getColorMode(s.colorMode).name],
     ["Tone", getTone(s.tone).name],
-    ["Script", s.enhance ? "Claude" : "Prompt only"],
+    ["Language", getLanguage(s.language).name],
+    ...(describeFace(s.face) ? ([["Character look", describeFace(s.face)]] as [string, string][]) : []),
+    ["Script", s.enhance ? "Claude" : g.script ? "Your prompt" : "Prompt only"],
+    ["Reviewed", (s.reviewScript ?? s.enhance) ? "Yes" : "No"],
     ...(s.quality ? ([["Quality", getQuality(s.quality).name]] as [string, string][]) : []),
     ["Image model", g.model],
   ];
@@ -150,6 +153,7 @@ export function DetailView({ id }: { id: string }) {
                     state={img ? { status: "done", image: img } : { status: "error", error: "This panel failed" }}
                     aspect={cssAspect(s.aspectRatio)}
                     caption={img?.caption}
+                    lang={s.language}
                     regenerating={regenerating.has(i)}
                     onRegenerate={() => regenerate(i)}
                   />
@@ -167,7 +171,13 @@ export function DetailView({ id }: { id: string }) {
             <CardContent className="px-5 text-sm leading-relaxed text-muted-foreground">{g.idea}</CardContent>
           </Card>
 
-          {g.script && <ScriptEditor script={g.script} readOnly />}
+          {g.script && (
+            <ScriptEditor
+              script={g.script}
+              readOnly
+              sourceLabel={s.enhance ? "Written by Claude" : "Written from your prompt"}
+            />
+          )}
 
           <Card className="gap-3 py-5">
             <CardHeader className="px-5">

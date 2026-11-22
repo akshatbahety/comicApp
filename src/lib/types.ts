@@ -1,6 +1,16 @@
 import type { AspectRatioId, ColorModeId, QualityId, StyleId, ToneId } from "./presets";
+import type { EyewearId, FacialHairId, HairColourId, HairStyleId, LanguageId, SkinToneId } from "./presets";
 
 export type PanelCount = 1 | 3 | 4 | 6;
+
+/** Main character's look (F-016). Each key is optional; a missing key means "Any". */
+export type FacialFeatures = Partial<{
+  hairStyle: HairStyleId;
+  hairColour: HairColourId;
+  skinTone: SkinToneId;
+  facialHair: FacialHairId;
+  eyewear: EyewearId;
+}>;
 
 export interface GenerationSettings {
   style: StyleId;
@@ -8,10 +18,16 @@ export interface GenerationSettings {
   aspectRatio: AspectRatioId;
   colorMode: ColorModeId;
   tone: ToneId;
+  /** Caption/dialogue language. Missing on comics made before F-018 (treated as "en"). */
+  language?: LanguageId;
   /** Image model tier. Missing on comics made before tiers existed (treated as "low"). */
   quality?: QualityId;
   /** Whether Claude expanded the idea into a script before drawing. */
   enhance: boolean;
+  /** Character look choices. Absent when every picker is "Any". */
+  face?: FacialFeatures;
+  /** Whether the script was reviewed before drawing. Missing on older comics (treated as equal to `enhance`). */
+  reviewScript?: boolean;
 }
 
 /** One panel of a script: what to draw, and the text shown over it. */
@@ -44,6 +60,8 @@ export interface Character {
   style: StyleId;
   quality: QualityId;
   model: string;
+  /** Look choices the reference was drawn with. Absent when none were set. */
+  face?: FacialFeatures;
 }
 
 export type GenerationStatus = "pending" | "done" | "failed";

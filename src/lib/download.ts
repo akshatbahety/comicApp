@@ -1,4 +1,4 @@
-import { panelColumns } from "@/lib/presets";
+import { CAPTION_FONT_STACK, getLanguage, panelColumns, type LanguageId } from "@/lib/presets";
 import type { PanelImage } from "@/lib/types";
 
 function loadImage(src: string) {
@@ -11,16 +11,45 @@ function loadImage(src: string) {
   });
 }
 
+/** User-perceived characters, so Devanagari conjuncts and emoji never split mid-glyph. */
+function graphemes(text: string) {
+  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
+    return Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text), (s) => s.segment);
+  }
+  return Array.from(text);
+}
+
+const NO_LINE_START = /^[、。，．,.!?！？…‥ー）」』】〕〉》ゃゅょっャュョッぁぃぅぇぉァィゥェォ।]$/u;
+
 function wrap(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
-  const words = text.split(/\s+/);
+  const fits = (s: string) => ctx.measureText(s).width <= maxWidth;
+  // Breaks on spaces, but not on no-break spaces (French "voilà !").
+  const words = text.split(/[^\S  ]+/);
   const lines: string[] = [];
   let line = "";
   for (const w of words) {
     const next = line ? `${line} ${w}` : w;
-    if (ctx.measureText(next).width > maxWidth && line) {
+    if (fits(next)) {
+      line = next;
+    } else if (fits(w)) {
       lines.push(line);
       line = w;
-    } else line = next;
+    } else {
+      // A word wider than the box (e.g. Japanese, which has no spaces): break it
+      // into graphemes. The last chunk stays open so following words can join it.
+      let chunk = line ? [line, " "] : [];
+      let prefix = chunk.length; // the open line + space: never carried down
+      for (const g of graphemes(w)) {
+        if (chunk.length && !fits(chunk.join("") + g)) {
+          // Closing punctuation never starts a line (Japanese kinsoku): carry the previous character down with it.
+          const carry = NO_LINE_START.test(g) && chunk.length > Math.max(prefix, 1) ? chunk.splice(-1) : [];
+          lines.push(chunk.join("").trimEnd());
+          chunk = [...carry, g];
+          prefix = 0;
+        } else chunk.push(g);
+      }
+      line = chunk.join("");
+    }
   }
   if (line) lines.push(line);
   return lines;
@@ -31,7 +60,11 @@ function slug(s: string) {
 }
 
 /** Renders panels (with caption overlays) onto one page and downloads it as PNG. */
-export async function downloadComicPage(title: string, images: PanelImage[], opts?: { captions?: boolean }) {
+export async function downloadComicPage(
+  title: string,
+  images: PanelImage[],
+  opts?: { captions?: boolean; lang?: LanguageId }
+) {
   if (!images.length) return;
   const showCaptions = opts?.captions ?? true;
   const cols = panelColumns(images.length);
@@ -42,6 +75,8 @@ export async function downloadComicPage(title: string, images: PanelImage[], opt
   const pad = 40;
 
   const canvas = document.createElement("canvas");
+  // Canvas text inherits the element's language, which picks the right CJK glyph variants.
+  canvas.lang = getLanguage(opts?.lang).lang;
   canvas.width = pad * 2 + cols * cellW + (cols - 1) * gap;
   canvas.height = pad * 2 + rows * cellH + (rows - 1) * gap;
   const ctx = canvas.getContext("2d");
@@ -63,7 +98,7 @@ export async function downloadComicPage(title: string, images: PanelImage[], opt
 
     const caption = images[i].caption;
     if (showCaptions && caption) {
-      ctx.font = "500 26px Geist, system-ui, sans-serif";
+      ctx.font = `500 26px ${CAPTION_FONT_STACK}`;
       const lines = wrap(ctx, caption, cellW - 72);
       const boxH = lines.length * 34 + 28;
       ctx.fillStyle = "rgba(255,255,255,0.94)";

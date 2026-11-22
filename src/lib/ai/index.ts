@@ -3,7 +3,7 @@ import { MockAIService } from "./mock-ai";
 import type { AIService } from "./types";
 
 export type * from "./types";
-export { buildPanelPrompt, checkIdea, titleFromIdea } from "./prompts";
+export { buildPanelPrompt, checkIdea, checkText, titleFromIdea } from "./prompts";
 
 /**
  * The app-wide AI provider. Real images come from fal.ai by default;

@@ -1,3 +1,5 @@
+import type { FacialFeatures } from "./types";
+
 /**
  * Generation option presets. Each style carries the prompt suffix sent to the
  * image model and a swatch palette used by the UI (and the Phase 1 mock art).
@@ -73,6 +75,9 @@ export const PANEL_COUNTS = [3, 4] as const;
 /** Server-side cap on panels per generation, enforced by /api/panels. */
 export const MAX_PANELS = 4;
 
+/** Character limits for the script review fields (F-017). */
+export const SCRIPT_LIMITS = { title: 80, characters: 300, scene: 300, caption: 140 } as const;
+
 export const ASPECT_RATIOS = [
   { id: "1:1", name: "1:1 Square", width: 1024, height: 1024 },
   { id: "3:4", name: "3:4 Portrait", width: 768, height: 1024 },
@@ -98,6 +103,28 @@ export const TONES = [
 ] as const;
 
 export type ToneId = (typeof TONES)[number]["id"];
+
+/**
+ * Caption language (F-018). Only captions/dialogue use it; scenes and image
+ * prompts stay English. `promptName` is what the real script writer (F-009)
+ * must ask for: "write captions and dialogue in <promptName>".
+ */
+export const LANGUAGES = [
+  { id: "en", name: "English", lang: "en", promptName: "English" },
+  { id: "es", name: "Español (Spanish)", lang: "es", promptName: "Spanish" },
+  { id: "fr", name: "Français (French)", lang: "fr", promptName: "French" },
+  { id: "hi", name: "हिन्दी (Hindi)", lang: "hi", promptName: "Hindi (Devanagari script)" },
+  { id: "ja", name: "日本語 (Japanese)", lang: "ja", promptName: "Japanese" },
+] as const;
+
+export type LanguageId = (typeof LANGUAGES)[number]["id"];
+
+/** Falls back to English for comics made before F-018 and for unknown IDs. */
+export const getLanguage = (id: string | undefined) => LANGUAGES.find((l) => l.id === id) ?? LANGUAGES[0];
+
+/** System fonts only (no web fonts bundled) covering Latin, Devanagari and Japanese. Shared by the overlay and the PNG download. */
+export const CAPTION_FONT_STACK =
+  'Geist, system-ui, "Noto Sans", "Nirmala UI", "Noto Sans Devanagari", "Yu Gothic", "Hiragino Sans", "Noto Sans JP", sans-serif';
 
 /**
  * Image quality tiers. Each comic first draws one character reference with the
@@ -161,3 +188,112 @@ export const getTone = (id: ToneId) => TONES.find((t) => t.id === id) ?? TONES[0
 export const panelColumns = (count: number) => (count === 1 ? 1 : count === 4 ? 2 : 3);
 
 export const MAX_IDEA_LENGTH = 500;
+
+/**
+ * Character look (F-016). Closed preset lists for the main character's reference
+ * drawing, in prompt order. "Any" is the absence of a key, not an option.
+ * Skin tones describe tone only: no ethnicity, nationality or race words.
+ */
+export const FACE_FEATURES = [
+  {
+    key: "hairStyle",
+    label: "Hair style",
+    options: [
+      { id: "short", name: "Short", prompt: "short hair" },
+      { id: "shoulder-length", name: "Shoulder-length", prompt: "shoulder-length hair" },
+      { id: "long", name: "Long", prompt: "long hair" },
+      { id: "curly", name: "Curly", prompt: "curly hair" },
+      { id: "ponytail", name: "Ponytail", prompt: "hair in a ponytail" },
+      { id: "braids", name: "Braids", prompt: "braided hair" },
+      { id: "bald", name: "Bald", prompt: "bald head" },
+    ],
+  },
+  {
+    key: "hairColour",
+    label: "Hair colour",
+    options: [
+      { id: "black", name: "Black", prompt: "black hair" },
+      { id: "brown", name: "Brown", prompt: "brown hair" },
+      { id: "blonde", name: "Blonde", prompt: "blonde hair" },
+      { id: "red", name: "Red", prompt: "red hair" },
+      { id: "grey", name: "Grey", prompt: "grey hair" },
+      { id: "blue", name: "Blue", prompt: "blue hair" },
+      { id: "pink", name: "Pink", prompt: "pink hair" },
+    ],
+  },
+  {
+    key: "skinTone",
+    label: "Skin tone",
+    options: [
+      { id: "light", name: "Light", prompt: "light skin tone", swatch: "#F3D9C4" },
+      { id: "medium", name: "Medium", prompt: "medium skin tone", swatch: "#DDB08C" },
+      { id: "tan", name: "Tan", prompt: "tan skin tone", swatch: "#BE8A60" },
+      { id: "brown", name: "Brown", prompt: "brown skin tone", swatch: "#8D5A3B" },
+      { id: "deep", name: "Deep", prompt: "deep brown skin tone", swatch: "#5A3825" },
+    ],
+  },
+  {
+    key: "facialHair",
+    label: "Facial hair",
+    options: [
+      { id: "clean-shaven", name: "Clean-shaven", prompt: "clean-shaven" },
+      { id: "stubble", name: "Stubble", prompt: "light stubble" },
+      { id: "moustache", name: "Moustache", prompt: "a moustache" },
+      { id: "beard", name: "Beard", prompt: "a full beard" },
+    ],
+  },
+  {
+    key: "eyewear",
+    label: "Eyewear",
+    options: [
+      { id: "round-glasses", name: "Round glasses", prompt: "round glasses" },
+      { id: "square-glasses", name: "Square glasses", prompt: "square-framed glasses" },
+      { id: "sunglasses", name: "Sunglasses", prompt: "sunglasses" },
+    ],
+  },
+] as const;
+
+type FaceGroup = (typeof FACE_FEATURES)[number];
+export type FaceFeatureKey = FaceGroup["key"];
+type FaceOptionId<K extends FaceFeatureKey> = Extract<FaceGroup, { key: K }>["options"][number]["id"];
+export type HairStyleId = FaceOptionId<"hairStyle">;
+export type HairColourId = FaceOptionId<"hairColour">;
+export type SkinToneId = FaceOptionId<"skinTone">;
+export type FacialHairId = FaceOptionId<"facialHair">;
+export type EyewearId = FaceOptionId<"eyewear">;
+
+/**
+ * Keeps only known keys whose value is a known option ID. Returns undefined when
+ * nothing is left, so "all Any" is never stored as `{}`.
+ */
+export function normalizeFace(input: unknown): FacialFeatures | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const raw = input as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const group of FACE_FEATURES) {
+    const value = raw[group.key];
+    if (group.options.some((o) => o.id === value)) out[group.key] = value as string;
+  }
+  return Object.keys(out).length ? (out as FacialFeatures) : undefined;
+}
+
+/** The chosen options in table order, after normalisation. */
+export function faceOptions(face: unknown) {
+  const clean = normalizeFace(face);
+  if (!clean) return [];
+  return FACE_FEATURES.flatMap((group) => {
+    const opt = group.options.find((o) => o.id === clean[group.key]);
+    return opt ? [opt] : [];
+  });
+}
+
+/**
+ * Detail-page label, e.g. "Curly hair · Red hair · Round glasses". Built from the
+ * prompt fragment (capitalised, leading "a " dropped) rather than the bare option
+ * name, so "Brown" hair and "Brown" skin don't read the same.
+ */
+export const describeFace = (face: unknown) =>
+  faceOptions(face)
+    .map((o) => o.prompt.replace(/^a /, ""))
+    .map((p) => p[0].toUpperCase() + p.slice(1))
+    .join(" · ");

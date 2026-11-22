@@ -1,7 +1,7 @@
 import { ai, buildPanelPrompt, titleFromIdea } from "@/lib/ai";
 import { hashString } from "@/lib/ai/mock-art";
 import { buildCharacterPrompt, characterDescription } from "@/lib/ai/prompts";
-import { getQuality } from "@/lib/presets";
+import { getQuality, normalizeFace } from "@/lib/presets";
 import { repo } from "@/lib/data";
 import type { Character, Generation, GenerationSettings, PanelImage, Script } from "@/lib/types";
 
@@ -15,6 +15,7 @@ const message = (err: unknown) => (err instanceof Error ? err.message : "Somethi
 async function createCharacter(idea: string, script: Script | null, settings: GenerationSettings, seed: number) {
   const prompt = buildCharacterPrompt(idea, script, settings);
   const out = await ai.generateCharacter({ prompt, settings, seed });
+  const face = normalizeFace(settings.face);
   return repo.createCharacter({
     description: characterDescription(idea, script),
     prompt,
@@ -24,6 +25,7 @@ async function createCharacter(idea: string, script: Script | null, settings: Ge
     style: settings.style,
     quality: getQuality(settings.quality).id,
     model: out.model,
+    ...(face ? { face } : {}),
   });
 }
 
